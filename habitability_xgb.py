@@ -1,18 +1,12 @@
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
+import xgboost as xgb
 from sklearn.metrics import accuracy_score, classification_report
+from imblearn.over_sampling import SMOTE
 
 df = pd.read_csv('hwc.csv')
-'''
-df.dropna(subset=['P_TEMP_SURF', 'P_TEMP_EQUIL', 'S_HZ_OPT_MIN', 'S_HZ_OPT_MAX', 'P_ESI'], inplace=True)
-
-features = ['P_TEMP_SURF', 'P_TEMP_EQUIL', 'S_HZ_OPT_MIN', 'S_HZ_OPT_MAX', 'P_ESI', 
-            'P_SEMI_MAJOR_AXIS', 'P_MASS', 'P_RADIUS']
-'''
-
-df.dropna(subset=['P_TEMP_SURF', 'P_TEMP_EQUIL', 'P_ESI'], inplace=True)
+df.dropna(subset=['P_TEMP_SURF', 'P_TEMP_EQUIL','P_ESI'], inplace=True)
 
 features = ['P_TEMP_SURF', 'P_TEMP_EQUIL', 'P_ESI', 
             'P_SEMI_MAJOR_AXIS', 'P_MASS', 'P_RADIUS']
@@ -21,26 +15,35 @@ y = df['P_HABITABLE']
 
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
+
 X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
-model = RandomForestClassifier(random_state=42, class_weight='balanced')
-model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
+smote = SMOTE(random_state=42)
+X_train_smote, y_train_smote = smote.fit_resample(X_train, y_train)
 
-#results
+xgb_model = xgb.XGBClassifier(
+    use_label_encoder=False,  
+    eval_metric='mlogloss',
+    random_state=42
+)
+
+xgb_model.fit(X_train_smote, y_train_smote)
+y_pred = xgb_model.predict(X_test)
+
+# Results
 print("Accuracy:", accuracy_score(y_test, y_pred))
 print("Classification Report:")
 print(classification_report(y_test, y_pred))
 
-feature_importances = model.feature_importances_
+importance = xgb_model.feature_importances_
 importance_df = pd.DataFrame({
     'Feature': features,
-    'Importance': feature_importances
+    'Importance': importance
 })
+
 importance_df = importance_df.sort_values(by='Importance', ascending=False)
 print(importance_df)
 
-#Solar System Data
 solar_system_planets = pd.DataFrame({
     'Planet': ['Mercury', 'Venus', 'Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune'],
     'P_TEMP_SURF': [440, 737, 288, 210, 165, 134, 76, 72],  # Surface Temp (K)
@@ -54,8 +57,7 @@ solar_system_planets = pd.DataFrame({
 X_solar = solar_system_planets.drop(columns=['Planet'])
 X_scaled_solar = scaler.transform(X_solar)
 
-habitability_predictions = model.predict(X_scaled_solar)
-
+habitability_predictions = xgb_model.predict(X_scaled_solar)
 solar_system_planets['Habitability_Label'] = habitability_predictions
 
 print(solar_system_planets[['Planet', 'Habitability_Label']])
